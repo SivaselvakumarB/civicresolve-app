@@ -1,0 +1,308 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 1 / Global Safety Net: default deny everything
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Hardened Global Primitives ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Console-managed admins/{uid} allowlist — no client self-registration or custom claim spoofing
+    function isAdmin() {
+      return isVerifiedUser() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // --- Domain Value Allowlists (synchronized with firebase-blueprint.json) ---
+    function isAllowedCategory(val) {
+      return val in [
+        'Road & Sidewalk',
+        'Streetlight & Electrical',
+        'Water & Drainage',
+        'Sanitation & Waste',
+        'Parks & Trees',
+        'Public Safety & Signage'
+      ];
+    }
+
+    function isAllowedSelectedCategory(val) {
+      return val == 'Auto-detect' || isAllowedCategory(val);
+    }
+
+    function isAllowedRecommendedCategory(val) {
+      return val == 'Pending review' || isAllowedCategory(val);
+    }
+
+    function isAllowedDepartment(val) {
+      return val in [
+        'Department of Transportation & Streets',
+        'Public Lighting & Electrical Services',
+        'Water & Sewer Authority',
+        'Department of Sanitation',
+        'Parks & Urban Forestry',
+        'Civic Traffic & Safety Bureau',
+        'Pending review'
+      ];
+    }
+
+    function isAllowedUrgency(val) {
+      return val in ['Low', 'Medium', 'High', 'Critical', 'Pending review'];
+    }
+
+    function isAllowedStatus(val) {
+      return val in ['Reported', 'In Progress', 'Resolved'];
+    }
+
+    function isValidTimelineEntry(entry) {
+      return entry is map
+        && entry.keys().hasAll(['status', 'timestampMs', 'actor', 'note'])
+        && entry.keys().hasOnly(['status', 'timestampMs', 'actor', 'note'])
+        && isAllowedStatus(entry.status)
+        && entry.timestampMs is int
+        && entry.actor is string && entry.actor.size() >= 1 && entry.actor.size() <= 120
+        && entry.note is string && entry.note.size() >= 1 && entry.note.size() <= 1000;
+    }
+
+    // Pillar 5: Total Array Guarding (bounded size <= 3, every entry validated)
+    function isValidTimeline(timeline) {
+      return timeline is list
+        && timeline.size() >= 1
+        && timeline.size() <= 3
+        && isValidTimelineEntry(timeline[0])
+        && (timeline.size() < 2 || isValidTimelineEntry(timeline[1]))
+        && (timeline.size() < 3 || isValidTimelineEntry(timeline[2]));
+    }
+
+    // Pillar 2: Validation Blueprint (Anti-Update-Gap)
+    function isValidTicket(data) {
+      return data.keys().hasAll([
+          'id',
+          'ownerId',
+          'ownerEmail',
+          'ownerName',
+          'title',
+          'description',
+          'location',
+          'selectedCategory',
+          'status',
+          'triageStatus',
+          'recommendedCategory',
+          'recommendedDepartment',
+          'urgency',
+          'triageReason',
+          'triageModel',
+          'timeline',
+          'createdAt',
+          'createdAtMs',
+          'updatedAt',
+          'updatedAtMs'
+        ])
+        && data.keys().hasOnly([
+          'id',
+          'ownerId',
+          'ownerEmail',
+          'ownerName',
+          'title',
+          'description',
+          'location',
+          'selectedCategory',
+          'status',
+          'triageStatus',
+          'recommendedCategory',
+          'recommendedDepartment',
+          'urgency',
+          'triageReason',
+          'triageModel',
+          'imageDataUrl',
+          'resolutionNote',
+          'assignedAdminUid',
+          'assignedAdminEmail',
+          'timeline',
+          'createdAt',
+          'createdAtMs',
+          'updatedAt',
+          'updatedAtMs',
+          'resolvedAt',
+          'resolvedAtMs'
+        ])
+        && data.id is string && data.id.size() >= 6 && data.id.size() <= 40 && data.id.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128
+        && data.ownerEmail is string && data.ownerEmail.size() >= 3 && data.ownerEmail.size() <= 254
+        && data.ownerName is string && data.ownerName.size() >= 1 && data.ownerName.size() <= 120
+        && data.title is string && data.title.size() >= 3 && data.title.size() <= 120
+        && data.description is string && data.description.size() >= 10 && data.description.size() <= 1500
+        && data.location is string && data.location.size() >= 3 && data.location.size() <= 200
+        && isAllowedSelectedCategory(data.selectedCategory)
+        && isAllowedStatus(data.status)
+        && data.triageStatus in ['completed', 'pending_review']
+        && isAllowedRecommendedCategory(data.recommendedCategory)
+        && isAllowedDepartment(data.recommendedDepartment)
+        && isAllowedUrgency(data.urgency)
+        && data.triageReason is string && data.triageReason.size() >= 5 && data.triageReason.size() <= 400
+        && data.triageModel is string && data.triageModel.size() >= 1 && data.triageModel.size() <= 64
+        && isValidTimeline(data.timeline)
+        && data.createdAt is timestamp
+        && data.createdAtMs is int
+        && data.updatedAt is timestamp
+        && data.updatedAtMs is int
+        && (!('imageDataUrl' in data) || (
+          data.imageDataUrl is string
+          && data.imageDataUrl.size() >= 24
+          && data.imageDataUrl.size() <= 180000
+          && data.imageDataUrl.matches('^data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$')
+        ))
+        && (!('resolutionNote' in data) || (
+          data.resolutionNote is string
+          && data.resolutionNote.size() >= 10
+          && data.resolutionNote.size() <= 1000
+        ))
+        && (!('assignedAdminUid' in data) || (
+          data.assignedAdminUid is string
+          && data.assignedAdminUid.size() >= 1
+          && data.assignedAdminUid.size() <= 128
+        ))
+        && (!('assignedAdminEmail' in data) || (
+          data.assignedAdminEmail is string
+          && data.assignedAdminEmail.size() >= 3
+          && data.assignedAdminEmail.size() <= 254
+        ))
+        && (!('resolvedAt' in data) || data.resolvedAt is timestamp)
+        && (!('resolvedAtMs' in data) || data.resolvedAtMs is int);
+    }
+
+    function immutableTicketFieldsUnchanged() {
+      return incoming().id == existing().id
+        && incoming().ownerId == existing().ownerId
+        && incoming().ownerEmail == existing().ownerEmail
+        && incoming().ownerName == existing().ownerName
+        && incoming().title == existing().title
+        && incoming().description == existing().description
+        && incoming().location == existing().location
+        && incoming().selectedCategory == existing().selectedCategory
+        && incoming().triageStatus == existing().triageStatus
+        && incoming().recommendedCategory == existing().recommendedCategory
+        && incoming().recommendedDepartment == existing().recommendedDepartment
+        && incoming().urgency == existing().urgency
+        && incoming().triageReason == existing().triageReason
+        && incoming().triageModel == existing().triageModel
+        && incoming().createdAt == existing().createdAt
+        && incoming().createdAtMs == existing().createdAtMs
+        && (!('imageDataUrl' in existing()) ? !('imageDataUrl' in incoming()) : ('imageDataUrl' in incoming() && incoming().imageDataUrl == existing().imageDataUrl));
+    }
+
+    // --- Collection 1: Console-Managed Admin Allowlist (/admins/{uid}) ---
+    match /admins/{uid} {
+      // Signed-in user can check only whether their own UID is allowlisted
+      allow get: if isSignedIn() && isValidId(uid) && request.auth.uid == uid;
+      // No client listing or mutations — strictly managed in Firebase Console
+      allow list: if false;
+      allow create: if false;
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // --- Collection 2: Citizen Issue Tickets (/tickets/{ticketId}) ---
+    match /tickets/{ticketId} {
+      // Owner-only citizen reads + allowlisted admin reads
+      allow get: if isSignedIn()
+        && isValidId(ticketId)
+        && (existing().ownerId == request.auth.uid || isAdmin());
+
+      // Pillar 8: Rule-enforced list query (citizens MUST query where('ownerId', '==', uid); admins may list all)
+      allow list: if isSignedIn()
+        && (existing().ownerId == request.auth.uid || isAdmin());
+
+      // Citizen ticket creation: strict owner match, status == 'Reported', server timestamp enforced
+      allow create: if isVerifiedUser()
+        && isValidId(ticketId)
+        && isValidTicket(incoming())
+        && incoming().id == ticketId
+        && incoming().ownerId == request.auth.uid
+        && incoming().ownerEmail == request.auth.token.email
+        && incoming().status == 'Reported'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && incoming().timeline.size() == 1
+        && incoming().timeline[0].status == 'Reported'
+        && !('resolutionNote' in incoming())
+        && !('resolvedAt' in incoming())
+        && !('resolvedAtMs' in incoming())
+        && !('assignedAdminUid' in incoming())
+        && !('assignedAdminEmail' in incoming());
+
+      // Admin-only status transitions: Reported -> In Progress -> Resolved (with required resolution note)
+      allow update: if isVerifiedUser()
+        && isValidId(ticketId)
+        && isValidTicket(incoming())
+        && isAdmin()
+        && immutableTicketFieldsUnchanged()
+        && incoming().updatedAt == request.time
+        && incoming().assignedAdminUid == request.auth.uid
+        && incoming().assignedAdminEmail == request.auth.token.email
+        && incoming().timeline.size() == existing().timeline.size() + 1
+        && incoming().timeline[incoming().timeline.size() - 1].status == incoming().status
+        && existing().status != 'Resolved'
+        && (
+          // Action 1: Begin Work (Reported -> In Progress)
+          (
+            existing().status == 'Reported'
+            && incoming().status == 'In Progress'
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status',
+              'updatedAt',
+              'updatedAtMs',
+              'timeline',
+              'assignedAdminUid',
+              'assignedAdminEmail'
+            ])
+          )
+          ||
+          // Action 2: Resolve Ticket (In Progress -> Resolved, requires resolutionNote)
+          (
+            existing().status == 'In Progress'
+            && incoming().status == 'Resolved'
+            && 'resolutionNote' in incoming()
+            && incoming().resolutionNote is string
+            && incoming().resolutionNote.size() >= 10
+            && 'resolvedAt' in incoming()
+            && incoming().resolvedAt == request.time
+            && 'resolvedAtMs' in incoming()
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status',
+              'resolutionNote',
+              'resolvedAt',
+              'resolvedAtMs',
+              'updatedAt',
+              'updatedAtMs',
+              'timeline',
+              'assignedAdminUid',
+              'assignedAdminEmail'
+            ])
+          )
+        );
+
+      // Immutable civic audit log: no client deletes
+      allow delete: if false;
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "CivicResolve",
+  "description": "Civic issue reporting and AI-assisted municipal triage portal with owner-scoped citizen tracking and admin resolution workflows.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,232 @@
+{
+  "entities": {
+    "Ticket": {
+      "title": "Civic Ticket",
+      "description": "A municipal issue report submitted by a signed-in citizen with live server-side Gemini triage recommendation and lifecycle timeline.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Human-readable ticket identifier matching document ID (e.g., CR-2026-AB12CD).",
+          "minLength": 6,
+          "maxLength": 40,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the citizen who submitted the report.",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "ownerEmail": {
+          "type": "string",
+          "format": "email",
+          "description": "Verified email address of the reporting citizen.",
+          "minLength": 3,
+          "maxLength": 254
+        },
+        "ownerName": {
+          "type": "string",
+          "description": "Display name of the reporting citizen.",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "title": {
+          "type": "string",
+          "description": "Concise issue headline submitted by the citizen.",
+          "minLength": 3,
+          "maxLength": 120
+        },
+        "description": {
+          "type": "string",
+          "description": "Detailed report description provided by the citizen.",
+          "minLength": 10,
+          "maxLength": 1500
+        },
+        "location": {
+          "type": "string",
+          "description": "Street address, intersection, or landmark for the civic issue.",
+          "minLength": 3,
+          "maxLength": 200
+        },
+        "selectedCategory": {
+          "type": "string",
+          "description": "Citizen-selected category or Auto-detect.",
+          "enum": [
+            "Auto-detect",
+            "Road & Sidewalk",
+            "Streetlight & Electrical",
+            "Water & Drainage",
+            "Sanitation & Waste",
+            "Parks & Trees",
+            "Public Safety & Signage"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "description": "Ticket lifecycle status progressed exclusively by allowlisted admins.",
+          "enum": ["Reported", "In Progress", "Resolved"]
+        },
+        "triageStatus": {
+          "type": "string",
+          "description": "Whether live Gemini triage completed or fell back to pending_review.",
+          "enum": ["completed", "pending_review"]
+        },
+        "recommendedCategory": {
+          "type": "string",
+          "description": "AI-recommended municipal category or Pending review when unavailable.",
+          "enum": [
+            "Road & Sidewalk",
+            "Streetlight & Electrical",
+            "Water & Drainage",
+            "Sanitation & Waste",
+            "Parks & Trees",
+            "Public Safety & Signage",
+            "Pending review"
+          ]
+        },
+        "recommendedDepartment": {
+          "type": "string",
+          "description": "Fixed municipal department deterministically mapped from recommendedCategory.",
+          "enum": [
+            "Department of Transportation & Streets",
+            "Public Lighting & Electrical Services",
+            "Water & Sewer Authority",
+            "Department of Sanitation",
+            "Parks & Urban Forestry",
+            "Civic Traffic & Safety Bureau",
+            "Pending review"
+          ]
+        },
+        "urgency": {
+          "type": "string",
+          "description": "Validated urgency level from Gemini or Pending review when unavailable.",
+          "enum": ["Low", "Medium", "High", "Critical", "Pending review"]
+        },
+        "triageReason": {
+          "type": "string",
+          "description": "Short rationale explaining the triage recommendation or pending review fallback.",
+          "minLength": 5,
+          "maxLength": 400
+        },
+        "triageModel": {
+          "type": "string",
+          "description": "Identifier of the model used or unavailable.",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "imageDataUrl": {
+          "type": "string",
+          "description": "Optional compressed JPEG/PNG/WebP data URL preview (capped <= 180KB).",
+          "maxLength": 180000,
+          "pattern": "^data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$"
+        },
+        "resolutionNote": {
+          "type": "string",
+          "description": "Required municipal resolution note written by an admin when resolving the ticket.",
+          "minLength": 10,
+          "maxLength": 1000
+        },
+        "assignedAdminUid": {
+          "type": "string",
+          "description": "UID of the last admin who updated the ticket status.",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "assignedAdminEmail": {
+          "type": "string",
+          "format": "email",
+          "description": "Email of the last admin who updated the ticket status.",
+          "minLength": 3,
+          "maxLength": 254
+        },
+        "timeline": {
+          "type": "array",
+          "description": "Bounded chronological array of status transition entries (max 5 entries)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of initial ticket creation."
+        },
+        "createdAtMs": {
+          "type": "number",
+          "description": "Client epoch ms mirror used strictly for deterministic UI ordering."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of most recent ticket update."
+        },
+        "updatedAtMs": {
+          "type": "number",
+          "description": "Client epoch ms mirror of last update."
+        },
+        "resolvedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp recorded when admin moves ticket to Resolved."
+        },
+        "resolvedAtMs": {
+          "type": "number",
+          "description": "Client epoch ms mirror of resolution time."
+        }
+      },
+      "required": [
+        "id",
+        "ownerId",
+        "ownerEmail",
+        "ownerName",
+        "title",
+        "description",
+        "location",
+        "selectedCategory",
+        "status",
+        "triageStatus",
+        "recommendedCategory",
+        "recommendedDepartment",
+        "urgency",
+        "triageReason",
+        "triageModel",
+        "timeline",
+        "createdAt",
+        "createdAtMs",
+        "updatedAt",
+        "updatedAtMs"
+      ]
+    },
+    "AdminAllowlistEntry": {
+      "title": "Admin Allowlist Entry",
+      "description": "Console-managed allowlist document at /admins/{uid} granting municipal triage admin privileges.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Optional reference email for the allowlisted administrator.",
+          "maxLength": 254
+        },
+        "role": {
+          "type": "string",
+          "description": "Optional descriptive role label (e.g., admin).",
+          "maxLength": 64
+        },
+        "grantedBy": {
+          "type": "string",
+          "description": "Optional note of who added the document in Firebase Console.",
+          "maxLength": 120
+        }
+      }
+    }
+  },
+  "firestore": {
+    "/tickets/{ticketId}": {
+      "schema": { "$ref": "#/entities/Ticket" },
+      "description": "Owner-scoped citizen civic issue reports; readable by owner or allowlisted admin, writable on create by authenticated owner, status-updatable only by allowlisted admins."
+    },
+    "/admins/{uid}": {
+      "schema": { "$ref": "#/entities/AdminAllowlistEntry" },
+      "description": "Console-managed allowlist of admin Firebase Auth UIDs. Users may only check existence of their own /admins/{request.auth.uid} document; all client writes and list queries are denied."
+    }
+  }
+}
